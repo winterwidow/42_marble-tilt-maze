@@ -98,33 +98,49 @@ class GameEngine:
 
     def _resolve_wall_collisions(self):
         for wall in self.walls:
-            marble_rect = self.marble.rect()
             wall_rect = wall.rect()
+            radius = self.marble.radius
 
-            # NOTE: this checks a simple bounding-box overlap
-            # (colliderect) between the marble's square bounding box
-            # and the wall, instead of a true circle-vs-rectangle
-            # distance test. Near a wall's corner, the marble's
-            # bounding square can overlap the wall rect well before
-            # the actual round marble visually touches it, causing an
-            # early "phantom" bounce off empty space right next to
-            # corners. See Task 1 in the README.
-            if marble_rect.colliderect(wall_rect):
-                overlap_x = min(marble_rect.right, wall_rect.right) - max(marble_rect.left, wall_rect.left)
-                overlap_y = min(marble_rect.bottom, wall_rect.bottom) - max(marble_rect.top, wall_rect.top)
+            # The closest point on the wall rectangle determines whether the
+            # round marble is touching it. This avoids treating the marble's
+            # square bounding box as solid near wall corners.
+            closest_x = max(wall_rect.left, min(self.marble.x, wall_rect.right))
+            closest_y = max(wall_rect.top, min(self.marble.y, wall_rect.bottom))
+            normal_x = self.marble.x - closest_x
+            normal_y = self.marble.y - closest_y
+            distance_squared = normal_x ** 2 + normal_y ** 2
 
-                if overlap_x < overlap_y:
-                    if self.marble.x < wall_rect.centerx:
-                        self.marble.x -= overlap_x
-                    else:
-                        self.marble.x += overlap_x
-                    self.marble.vx *= -0.3
-                else:
-                    if self.marble.y < wall_rect.centery:
-                        self.marble.y -= overlap_y
-                    else:
-                        self.marble.y += overlap_y
-                    self.marble.vy *= -0.3
+            if distance_squared > radius ** 2:
+                continue
+
+            if distance_squared > 0:
+                distance = distance_squared ** 0.5
+                normal_x /= distance
+                normal_y /= distance
+                penetration = radius - distance
+            else:
+                # The center is inside the wall. Move it through the nearest
+                # face, which also gives the correct bounce direction.
+                distances = (
+                    (self.marble.x - wall_rect.left, -1, 0),
+                    (wall_rect.right - self.marble.x, 1, 0),
+                    (self.marble.y - wall_rect.top, 0, -1),
+                    (wall_rect.bottom - self.marble.y, 0, 1),
+                )
+                _, normal_x, normal_y = min(distances, key=lambda item: item[0])
+                penetration = radius + min(distances, key=lambda item: item[0])[0]
+
+            self.marble.x += normal_x * penetration
+            self.marble.y += normal_y * penetration
+
+            # Only reflect velocity when the marble is moving into the wall.
+            # The 0.3 factor preserves the existing damped-bounce behavior.
+            velocity_into_wall = (
+                self.marble.vx * normal_x + self.marble.vy * normal_y
+            )
+            if velocity_into_wall < 0:
+                self.marble.vx -= 1.3 * velocity_into_wall * normal_x
+                self.marble.vy -= 1.3 * velocity_into_wall * normal_y
 
     def render(self, screen):
         screen.fill(DARK)
