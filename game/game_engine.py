@@ -10,25 +10,26 @@ WALL_COLOR = (90, 90, 110)
 GOAL_COLOR = (60, 200, 120)
 
 class GameEngine:
+    DIFFICULTIES = {
+        "easy": {"tilt_strength": 0.45, "friction": 0.04, "time_limit_ms": 60000},
+        "medium": {"tilt_strength": 0.6, "friction": 0.02, "time_limit_ms": 45000},
+        "hard": {"tilt_strength": 0.8, "friction": 0.01, "time_limit_ms": 30000},
+    }
+
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        self.marble = Marble(50, 50)
-        self.tilt_strength = 0.6
-        self.friction = 0.02
         self.max_speed = 9
 
         self.walls = self._build_maze()
         self.goal_x, self.goal_y, self.goal_radius = width - 60, height - 60, 22
 
-        self.time_limit_ms = 45000
-        self.start_ticks = pygame.time.get_ticks()
-
         self.font = pygame.font.SysFont("Arial", 26)
-        self.game_over = False
-        self.result = None  # "solved" or "timeout"
-        self.finish_time_ms = None
+        self.end_title_font = pygame.font.SysFont("Arial", 42, bold=True)
+        self.end_font = pygame.font.SysFont("Arial", 24)
+        self.should_exit = False
+        self.reset_game("medium")
 
     def _build_maze(self):
         walls = []
@@ -50,7 +51,31 @@ class GameEngine:
     def handle_event(self, event):
         # This game is driven entirely by the continuous mouse
         # position, handled in handle_input each frame.
-        pass
+        if not self.game_over or event.type != pygame.KEYDOWN:
+            return
+
+        difficulty_keys = {
+            pygame.K_1: "easy",
+            pygame.K_2: "medium",
+            pygame.K_3: "hard",
+        }
+        if event.key in difficulty_keys:
+            self.reset_game(difficulty_keys[event.key])
+        elif event.key in (pygame.K_e, pygame.K_ESCAPE):
+            self.should_exit = True
+
+    def reset_game(self, difficulty):
+        settings = self.DIFFICULTIES[difficulty]
+        self.difficulty = difficulty
+        self.tilt_strength = settings["tilt_strength"]
+        self.friction = settings["friction"]
+        self.time_limit_ms = settings["time_limit_ms"]
+        self.marble = Marble(50, 50)
+        self.start_ticks = pygame.time.get_ticks()
+        self.game_over = False
+        self.result = None
+        self.finish_time_ms = None
+        self.should_exit = False
 
     def handle_input(self):
         if self.game_over:
@@ -73,6 +98,7 @@ class GameEngine:
         if elapsed >= self.time_limit_ms:
             self.game_over = True
             self.result = "timeout"
+            self.finish_time_ms = self.time_limit_ms
             return
 
         self.marble.vx *= (1 - self.friction)
@@ -156,10 +182,38 @@ class GameEngine:
         timer_text = self.font.render(f"Time: {seconds_left}s", True, WHITE)
         screen.blit(timer_text, (10, 10))
 
-        if self.game_over and not getattr(self, "_game_over_logged", False):
-            # NOTE: no proper end screen yet - see Task 2 in the README.
-            if self.result == "solved":
-                print(f"Solved! Finished in {self.finish_time_ms / 1000:.1f}s")
-            else:
-                print("Time's up! Maze not solved.")
-            self._game_over_logged = True
+        if self.game_over:
+            self._render_game_over(screen)
+
+    def _render_game_over(self, screen):
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 185))
+        screen.blit(overlay, (0, 0))
+
+        if self.result == "solved":
+            title = "Maze Solved!"
+            details = f"Finished in {self.finish_time_ms / 1000:.1f} seconds"
+            title_color = GOAL_COLOR
+        else:
+            title = "Time's Up!"
+            details = "The maze was not solved in time."
+            title_color = (240, 110, 110)
+
+        title_surface = self.end_title_font.render(title, True, title_color)
+        details_surface = self.end_font.render(details, True, WHITE)
+        prompt_surface = self.end_font.render(
+            "1: Easy    2: Medium    3: Hard    E: Exit", True, WHITE
+        )
+
+        center_x = self.width // 2
+        title_rect = title_surface.get_rect(center=(center_x, self.height // 2 - 55))
+        details_rect = details_surface.get_rect(
+            center=(center_x, self.height // 2)
+        )
+        prompt_rect = prompt_surface.get_rect(
+            center=(center_x, self.height // 2 + 55)
+        )
+
+        screen.blit(title_surface, title_rect)
+        screen.blit(details_surface, details_rect)
+        screen.blit(prompt_surface, prompt_rect)
